@@ -17,6 +17,7 @@ n_vocab = len(chars) # no of unique characters
 
 seq_length = 100
 n_hidden = 100
+n_steps = 10
 no_of_chars = len(chars)
 dataX = []
 dataY = []
@@ -38,18 +39,24 @@ Y = numpy.reshape(dataY, (n_patterns, 61))
 
 # TensorFlow
 print("Tensor Flow")
-x = tf.placeholder(tf.float32, [None, seq_length])
-y_ = tf.placeholder(tf.float32, [None, 61])
+x = tf.placeholder(tf.float32, [None, seq_length], name="input")
+y_ = tf.placeholder(tf.float32, [None, 61], name="output")
 
 lstm_cell = rnn.BasicLSTMCell(n_hidden, forget_bias=1.0)
-outputs, states = rnn.static_rnn(lstm_cell, [x], dtype=tf.float32)
+drop_cell = rnn.DropoutWrapper(lstm_cell, output_keep_prob = 0.7)
+cell = rnn.MultiRNNCell([drop_cell]*n_hidden)
 
 W1 = tf.Variable(tf.zeros([n_hidden, 61]))
 b1 = tf.Variable(tf.zeros([61]))
 y = tf.nn.softmax(tf.matmul(outputs[-1], W1) + b1)
 
+W1_h = tf.summary.histogram("weights", W1)
+b1_h = tf.summary.histogram("biases", b1)
 
-cross_entropy = tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(y), reduction_indices=[1]))
+cost_function = -tf.reduce_sum(y_ * tf.log(y), reduction_indices=[1])
+#tf.summary.scalar("cost_function", cost_function)
+
+cross_entropy = tf.reduce_mean(cost_function)
 
 train_step = tf.train.GradientDescentOptimizer(0.5).minimize(cross_entropy)
 sess = tf.InteractiveSession()
@@ -57,6 +64,13 @@ tf.global_variables_initializer().run()
 
 sess.run(train_step, feed_dict= { x: X, y_: Y })
 output = sess.run(y, feed_dict={x:X})
+
+# tensorboard
+merged_summary_op = tf.summary.merge_all()
+summary_writer = tf.summary.FileWriter('./logs',graph_def=sess.graph_def)
+summary_str = sess.run(merged_summary_op, feed_dict = { x: X, y_: Y })
+summary_writer.add_summary(summary_str)
+
 
 # Lookback
 print("Lookback")
