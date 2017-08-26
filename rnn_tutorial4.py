@@ -7,6 +7,7 @@ total_series_length = 50000
 truncated_backprop_length = 15
 state_size = 4
 num_classes = 2
+num_layers = 3
 echo_step = 3
 batch_size = 5
 num_batches = total_series_length//batch_size//truncated_backprop_length
@@ -24,9 +25,11 @@ def generateData():
 batchX_placeholder = tf.placeholder(tf.float32, [batch_size, truncated_backprop_length])
 batchY_placeholder = tf.placeholder(tf.int32, [batch_size, truncated_backprop_length])
 
-cell_state = tf.placeholder(tf.float32, [batch_size, state_size])
-hidden_state = tf.placeholder(tf.float32, [batch_size, state_size])
-init_state = tf.nn.rnn_cell.LSTMStateTuple(cell_state, hidden_state)
+init_state = tf.placeholder(tf.float32, [num_layers, 2, batch_size, state_size])
+
+state_per_layer_list = tf.unstack(init_state, axis=0)
+
+rnn_tuple_state = tuple([tf.nn.rnn_cell.LSTMStateTuple(state_per_layer_list[idx][0], state_per_layer_list[idx][1]) for idx in range(num_layers)])
 
 W2 = tf.Variable(np.random.rand(state_size, num_classes),dtype=tf.float32)
 b2 = tf.Variable(np.zeros((1,num_classes)), dtype=tf.float32)
@@ -35,8 +38,11 @@ b2 = tf.Variable(np.zeros((1,num_classes)), dtype=tf.float32)
 inputs_series = tf.split(batchX_placeholder, truncated_backprop_length, 1)
 labels_series = tf.unstack(batchY_placeholder, axis=1)
 
-cell = tf.nn.rnn_cell.BasicLSTMCell(state_size, state_is_tuple=True)
-states_series, current_state = tf.contrib.rnn.static_rnn(cell, inputs_series, init_state)
+stacked_rnn = []
+for i in range(num_layers):
+    stacked_rnn.append(tf.nn.rnn_cell.BasicLSTMCell(state_size, state_is_tuple=True))
+cell = tf.nn.rnn_cell.MultiRNNCell(stacked_rnn, state_is_tuple=True)
+states_series, current_state = tf.contrib.rnn.static_rnn(cell, inputs_series, initial_state = rnn_tuple_state)
 
 logits_series = [tf.matmul(state, W2) + b2 for state in states_series] #Broadcasted addition
 predictions_series = [tf.nn.softmax(logits) for logits in logits_series]
@@ -52,8 +58,7 @@ loss_list = []
 
 for epoch_idx in range(num_epochs):
     x, y = generateData()
-    _current_cell_state = np.zeros((batch_size, state_size))
-    _current_hidden_state = np.zeros((batch_size, state_size))
+    _current_state = np.zeros((num_layers, 2, batch_size, state_size))
 
     for batch_idx in range(num_batches):
         start_idx = batch_idx * truncated_backprop_length
@@ -68,11 +73,9 @@ for epoch_idx in range(num_epochs):
             feed_dict = {
                 batchX_placeholder: batchX,
                 batchY_placeholder: batchY,
-                cell_state: _current_cell_state,
-                hidden_state: _current_hidden_state
+                init_state: _current_state
             }
         )
-        _current_cell_state, _current_hidden_state = _current_state
 
 
 
